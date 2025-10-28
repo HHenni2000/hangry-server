@@ -252,7 +252,7 @@ app.get('/api/shopping/list', async (req, res) => {
 // POST /api/shopping/items - Add new item
 app.post('/api/shopping/items', async (req, res) => {
   try {
-    const { name, categoryId, quantity, checked } = req.body;
+    const { name, categoryId, quantity, checked, details } = req.body;
 
     if (!name || !categoryId) {
       return res.status(400).json({
@@ -263,11 +263,14 @@ app.post('/api/shopping/items', async (req, res) => {
 
     const list = await loadShoppingList();
 
+    const trimmedDetails = typeof details === 'string' ? details.trim() : '';
+
     const newItem = {
       id: Date.now().toString(),
       name,
       categoryId,
       quantity: quantity || undefined,
+      details: trimmedDetails.length > 0 ? trimmedDetails : undefined,
       checked: checked || false,
       createdAt: new Date().toISOString(),
       checkedAt: undefined
@@ -302,18 +305,35 @@ app.patch('/api/shopping/items/:id', async (req, res) => {
       });
     }
 
+    const sanitizedUpdates = { ...updates };
+
+    if (Object.prototype.hasOwnProperty.call(sanitizedUpdates, 'details')) {
+      if (typeof sanitizedUpdates.details === 'string') {
+        const trimmedDetails = sanitizedUpdates.details.trim();
+        sanitizedUpdates.details = trimmedDetails.length > 0 ? trimmedDetails : undefined;
+      } else if (sanitizedUpdates.details === null) {
+        sanitizedUpdates.details = undefined;
+      }
+    }
+
     // Update item
-    list.items[itemIndex] = {
+    const updatedItem = {
       ...list.items[itemIndex],
-      ...updates
+      ...sanitizedUpdates
     };
 
     // If toggling checked state, update checkedAt
     if ('checked' in updates) {
-      list.items[itemIndex].checkedAt = updates.checked
+      updatedItem.checkedAt = updates.checked
         ? new Date().toISOString()
         : undefined;
     }
+
+    if (sanitizedUpdates.details === undefined) {
+      delete updatedItem.details;
+    }
+
+    list.items[itemIndex] = updatedItem;
 
     const updatedList = await saveShoppingList(list);
 
