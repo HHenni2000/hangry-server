@@ -17,6 +17,7 @@ const io = socketIo(server, {
 
 const PORT = process.env.PORT || 3002;
 const DATA_FILE = path.join(__dirname, 'shopping-list.json');
+const CATEGORIES_FILE = path.join(__dirname, 'categories.json');
 const API_KEY = process.env.API_KEY || 'your-secret-api-key-here'; // Change in production!
 
 // Middleware
@@ -56,6 +57,23 @@ async function saveShoppingList(list) {
   };
   await fs.writeFile(DATA_FILE, JSON.stringify(updatedList, null, 2));
   return updatedList;
+}
+
+// Helper: Load custom categories from file
+async function loadCategories() {
+  try {
+    const data = await fs.readFile(CATEGORIES_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    // If file doesn't exist, return empty array (client will use defaults)
+    return [];
+  }
+}
+
+// Helper: Save custom categories to file
+async function saveCategories(categories) {
+  await fs.writeFile(CATEGORIES_FILE, JSON.stringify(categories, null, 2));
+  return categories;
 }
 
 // Helper: Auto-classify item into category based on keywords
@@ -388,6 +406,65 @@ app.delete('/api/shopping/items', async (req, res) => {
     res.json({ success: true, data: updatedList });
   } catch (error) {
     console.error('Error clearing checked items:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ============================================================================
+// CATEGORIES API ENDPOINTS
+// ============================================================================
+
+// GET /api/shopping/categories - Get custom categories
+app.get('/api/shopping/categories', async (req, res) => {
+  try {
+    const categories = await loadCategories();
+    res.json({ success: true, data: categories });
+  } catch (error) {
+    console.error('Error loading categories:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// POST /api/shopping/categories - Save custom categories
+app.post('/api/shopping/categories', async (req, res) => {
+  try {
+    const { categories } = req.body;
+
+    if (!Array.isArray(categories)) {
+      return res.status(400).json({
+        success: false,
+        error: 'categories must be an array'
+      });
+    }
+
+    const savedCategories = await saveCategories(categories);
+
+    // Broadcast to all connected clients
+    io.emit('categories-updated', savedCategories);
+
+    res.json({ success: true, data: savedCategories });
+  } catch (error) {
+    console.error('Error saving categories:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// DELETE /api/shopping/categories - Reset to default categories
+app.delete('/api/shopping/categories', async (req, res) => {
+  try {
+    // Remove categories file to reset to defaults
+    try {
+      await fs.unlink(CATEGORIES_FILE);
+    } catch (error) {
+      // File might not exist, that's fine
+    }
+
+    // Broadcast to all connected clients
+    io.emit('categories-updated', []);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error resetting categories:', error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
